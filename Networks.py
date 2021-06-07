@@ -1,6 +1,4 @@
-import numpy as np
-import sys, os, random
-from cache.DataLoader import *
+from DataLoader import *
 
 
 class Cooperative_net(object):
@@ -136,6 +134,8 @@ class Cooperative_net(object):
         else:
             skip_resource = self._current_request()
 
+        last_index = self.cur_idx
+
         #Proceed kernel and resource accesses until next miss
         self._run_until_miss()
 
@@ -143,7 +143,31 @@ class Cooperative_net(object):
         observation = self._get_observation()
 
         if self.reward_params['name'].lower() == "proposed":
-            # Compute cost C =
+            # Compute cost C = retrieval time +
+            reward = 0.0
+
+            hit_count = self.cur_idx - last_index - 1
+            reward += hit_count
+
+            miss_resource = self._current_request()
+
+            if action != 0:
+                # Compute the swap-in reward
+                past_requests = self.requests[last_index + 1 : self.cur_idx]
+                reward += self.reward_params['alpha'] * past_requests.count(in_resource)
+
+                # Compute the swap-out penalty
+                if miss_resource == out_resource:
+                    reward -= self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
+
+            # Else no eviction happens at last decision epoch
+            else:
+                # Compute the penalty of skipping eviction
+                reward += self.reward_params['beta'] * reward
+                if miss_resource == skip_resource:
+                    reward -=self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
+
+            return observation, reward
 
     def _run_until_miss(self):
         self.cur_idx += 1
@@ -198,21 +222,29 @@ class Cooperative_net(object):
 
     # Return the observation features for reinforcement agent
     def _get_features(self):
+        # base
+        features = np.concatenate([np.array([self._elapsed_requests(t, self._current_request()) for t in self.FEAT_TERMS]),
+                                   np.array([self._elapsed_requests(t, rc) for rc in self.slots for t in self.FEAT_TERMS])],
+                                  axis=0)
 
+        #last accessed time
+        if 'UT' in self.sel_features:
+            features = np.concatenate([features, np.array([self.used_times[i] for i in range(self.cache_size)])],
+                                      axis=0)
 
+        # cached time
+        if 'CT' in self.sel_features:
+            features = np.concatenate([features, np.array([self.cached_times[i] for i in range(self.cache_size)])],
+                                      axis=0)
 
+        return features
 
-
-
-
-
-
-
-    # def __init__(self):
-    #         super(Cooperative_net, self).__init__()
-    #         self.action_space = ['u', 'd', 'l', 'r']
-    #         self.n_actions = len(self.action_space)
-    #         # self.title('cooperative caching networks')
-    #         # self.geometry('{0}x{1}'.format())
-
-    def
+    def _get_observation(self):
+        return dict(features=self._get_features(),
+                    cache_state=self.slots.copy(),
+                    cached_times=self.cached_times.copy(),
+                    last_used_times=self.used_times.copy(),
+                    total_used_frequency=[self.resource_freq.get(r, 0) for r in self.slots],
+                    access_bits=self.access_bits.copy(),
+                    dirty_bits=self.dirty_bits.copy()
+                    )
