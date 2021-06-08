@@ -1,7 +1,25 @@
 from DataLoader import *
+import gym
+from gym import spaces
 
 
-class Cooperative_net(object):
+class cachingEnv(gym.Env):
+    def __init__(self, env_name, alpha):
+        self.env_name = env_name
+        self.alpha = alpha
+        self.action_space = spaces.Discrete(NUM_LOC)
+        #self.action_space = np.zeros(len())
+
+    def _step(self, action):
+        return
+
+    def _reset(self):
+        return
+
+    def _render(self, mode='', close=False):
+        return
+
+    '''
     def __init__(self, requests, cache_size,
                  # Time span for different terms
                  terms=[10, 100, 1000],
@@ -248,3 +266,4 @@ class Cooperative_net(object):
                     access_bits=self.access_bits.copy(),
                     dirty_bits=self.dirty_bits.copy()
                     )
+    '''
