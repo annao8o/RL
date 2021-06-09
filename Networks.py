@@ -1,20 +1,92 @@
 from DataLoader import *
 import gym
 from gym import spaces
-
+import config as cfg
 
 class cachingEnv(gym.Env):
     def __init__(self, env_name, alpha):
         self.env_name = env_name
         self.alpha = alpha
         self.action_space = spaces.Discrete(NUM_LOC)
-        #self.action_space = np.zeros(len())
+        self.cache_mat = np.zeros(cfg.svr_num, cfg.file_num)
+
+
+    # Has program finished?
+    def hasDone(self):
+        return self.cur_idx == len(self.requests)
 
     def _step(self, action):
-        return
+        if self.hasDone():
+            raise ValueError("Simulation has finished, use reset() to restart simulation.")
+
+        # 주어진 동작에 따라 cache_mat에
+        self.cache_mat[action]
+
+
+
+
+        # Replacement인데,,,!
+        # Evict slot of (action-1)
+        # action == 0 means skipping eviction
+        if action != 0:
+            out_resource = self.slots[action - 1]
+            in_resource = self._current_request()
+            slot_id = action - 1
+            self.slots[slot_id] = in_resource
+            self.cached_times[slot_id] = self.cur_idx
+            self._hit_cache(slot_id)
+            self.evict_count += 1
+        else:
+            skip_resource = self._current_request()
+
+        last_index = self.cur_idx
+
+        # Proceed kernel and resource accesses until next miss
+        self._run_until_miss()
+
+        # Get observation
+        observation = self._get_observation()
+
+        if self.reward_params['name'].lower() == "proposed":
+            # Compute cost C = retrieval time +
+            reward = 0.0
+
+            hit_count = self.cur_idx - last_index - 1
+            reward += hit_count
+
+            miss_resource = self._current_request()
+
+            if action != 0:
+                # Compute the swap-in reward
+                past_requests = self.requests[last_index + 1: self.cur_idx]
+                reward += self.reward_params['alpha'] * past_requests.count(in_resource)
+
+                # Compute the swap-out penalty
+                if miss_resource == out_resource:
+                    reward -= self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
+
+            # Else no eviction happens at last decision epoch
+            else:
+                # Compute the penalty of skipping eviction
+                reward += self.reward_params['beta'] * reward
+                if miss_resource == skip_resource:
+                    reward -= self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
+
+            return self._get_observation(), reward, self.hasDone(), None
+
 
     def _reset(self):
-        return
+        # 환경 초기화
+        self.total_count = 0
+        self.miss_count = 0
+        self.cur_idx = 0
+        # self.slots = [-1] * self.cache_size
+        self.cache_mat = np.zeros(cfg.svr_num, cfg.file_num)
+
+        return self._get_observation()
+
+    def _get_observation(self):
+        return self.cache_mat
 
     def _render(self, mode='', close=False):
         return
