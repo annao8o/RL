@@ -1,78 +1,65 @@
 from DataLoader import *
 import gym
 from gym import spaces
-import config as cfg
+from config import *
+import numpy as np
+
+
+def after_action_state(state, action):
+    """
+    Execute an action and returns resulted state.
+    :param state(tuple): network status (caching status) + player
+    :param action: Action to run
+    :return: new state
+    """
+
+    cacheState = state
+    return
+
+def next_mark(agents, mark):    #mark: mec id (agent id)
+    if mark == len(agents)-1:
+        mark = -1
+    return mark + 1
+
+
+def agent_by_mark(agents, mark):
+    for agent in agents:
+        if agent.mark == mark:
+            return agent
+
+
+def check_network_status(cache_mat):
+    """
+    Return network status by current network status.
+
+    :param cache_mat (matrix): Current network caching state
+    :return:
+        int:
+            0: cache is not full
+            -1: cache is full
+    """
+    if np.sum(cache_mat) >= cache_size * svr_num:
+        return -1
+    else:
+        return 0
+
+
 
 class cachingEnv(gym.Env):
     def __init__(self, env_name, alpha):
         self.env_name = env_name
         self.alpha = alpha
         self.action_space = spaces.Discrete(NUM_LOC)
-        self.cache_mat = np.zeros(cfg.svr_num, cfg.file_num)
-
-
-    # Has program finished?
-    def hasDone(self):
-        return self.cur_idx == len(self.requests)
-
-    def _step(self, action):
-        if self.hasDone():
-            raise ValueError("Simulation has finished, use reset() to restart simulation.")
-
-        # 주어진 동작에 따라 cache_mat에
-        self.cache_mat[action]
+        self.observation_space = spaces.Discrete(NUM_LOC)
+        self.cache_mat = np.zeros((svr_num, file_num))
+        self.set_start_mark(0)
+        self.reset()
+        self.f_state = [0 for _ in range(file_num)]
 
 
 
-
-        # Replacement인데,,,!
-        # Evict slot of (action-1)
-        # action == 0 means skipping eviction
-        if action != 0:
-            out_resource = self.slots[action - 1]
-            in_resource = self._current_request()
-            slot_id = action - 1
-            self.slots[slot_id] = in_resource
-            self.cached_times[slot_id] = self.cur_idx
-            self._hit_cache(slot_id)
-            self.evict_count += 1
-        else:
-            skip_resource = self._current_request()
-
-        last_index = self.cur_idx
-
-        # Proceed kernel and resource accesses until next miss
-        self._run_until_miss()
-
-        # Get observation
-        observation = self._get_observation()
-
-        if self.reward_params['name'].lower() == "proposed":
-            # Compute cost C = retrieval time +
-            reward = 0.0
-
-            hit_count = self.cur_idx - last_index - 1
-            reward += hit_count
-
-            miss_resource = self._current_request()
-
-            if action != 0:
-                # Compute the swap-in reward
-                past_requests = self.requests[last_index + 1: self.cur_idx]
-                reward += self.reward_params['alpha'] * past_requests.count(in_resource)
-
-                # Compute the swap-out penalty
-                if miss_resource == out_resource:
-                    reward -= self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
-
-            # Else no eviction happens at last decision epoch
-            else:
-                # Compute the penalty of skipping eviction
-                reward += self.reward_params['beta'] * reward
-                if miss_resource == skip_resource:
-                    reward -= self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
-
-            return self._get_observation(), reward, self.hasDone(), None
+    def set_start_mark(self, mark):
+        self.start_mark = mark
 
 
     def _reset(self):
@@ -81,15 +68,114 @@ class cachingEnv(gym.Env):
         self.miss_count = 0
         self.cur_idx = 0
         # self.slots = [-1] * self.cache_size
-        self.cache_mat = np.zeros(cfg.svr_num, cfg.file_num)
+        self.cache_mat = np.zeros((svr_num, file_num))
+        self.done = False
 
         return self._get_observation()
 
     def _get_observation(self):
-        return self.cache_mat
+        return self.cache_mat, self.mark
+
+
+    # Has program finished?
+    def hasDone(self):
+        if self.cur_idx == len(self.requests):
+            self.done = True
+        return self.done
+
+    def _step(self, action):
+        """
+        Step environment by action.
+        :param action (int): caching decision (0 or 1)
+        :return:
+            list: observation
+            int: reward
+            bool: Done
+            dict: Additional information
+        """
+        assert self.action_space.contains(action)
+
+        if self.hasDone():
+            raise ValueError("Simulation has finished, use reset() to restart simulation.")
+
+        reward = NO_REWARD
+
+        status = check_network_status(self.cache_mat)
+        if status < 0:
+            self.done = True
+        else:
+            pass
+            # reward = ###
+
+
+        # 주어진 동작에 따라 cache_mat에
+        self.cache_mat[self.mark, ] = action
+
+        # switch turn
+        self.mark = next_mark(self.mark)
+
+        return self._get_observation(), reward, self.done, None
+
+
 
     def _render(self, mode='', close=False):
         return
+
+
+    def available_actions(self):
+        return [i for i, c in enumerate(self.f_state) if c == 0]
+
+        # # Replacement인데,,,!
+        # # Evict slot of (action-1)
+        # # action == 0 means skipping eviction
+        # if action != 0:
+        #     out_resource = self.slots[action - 1]
+        #     in_resource = self._current_request()
+        #     slot_id = action - 1
+        #     self.slots[slot_id] = in_resource
+        #     self.cached_times[slot_id] = self.cur_idx
+        #     self._hit_cache(slot_id)
+        #     self.evict_count += 1
+        # else:
+        #     skip_resource = self._current_request()
+        #
+        # last_index = self.cur_idx
+        #
+        # # Proceed kernel and resource accesses until next miss
+        # self._run_until_miss()
+        #
+        # # Get observation
+        # observation = self._get_observation()
+        #
+        # if self.reward_params['name'].lower() == "proposed":
+        #     # Compute cost C = retrieval time +
+        #     reward = 0.0
+        #
+        #     hit_count = self.cur_idx - last_index - 1
+        #     reward += hit_count
+        #
+        #     miss_resource = self._current_request()
+        #
+        #     if action != 0:
+        #         # Compute the swap-in reward
+        #         past_requests = self.requests[last_index + 1: self.cur_idx]
+        #         reward += self.reward_params['alpha'] * past_requests.count(in_resource)
+        #
+        #         # Compute the swap-out penalty
+        #         if miss_resource == out_resource:
+        #             reward -= self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
+        #
+        #     # Else no eviction happens at last decision epoch
+        #     else:
+        #         # Compute the penalty of skipping eviction
+        #         reward += self.reward_params['beta'] * reward
+        #         if miss_resource == skip_resource:
+        #             reward -= self.reward_params['psi'] / (hit_count + self.reward_params['mu'])
+        #
+        #     return self._get_observation(), reward, self.hasDone(), None
+
+
+
 
     '''
     def __init__(self, requests, cache_size,
